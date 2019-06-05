@@ -1,6 +1,8 @@
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 
+import AWSRegionalDeployment from "./deployment";
+
 export function regionalVpc(
     deploymentName: string,
     provider: aws.Provider,
@@ -51,6 +53,7 @@ export function externalSubnet(
         {
             cidrBlock: subnet,
             availabilityZone: availabilityZone,
+            //assignIpv6AddressOnCreation: true,
             tags: {
                 Name: `${deploymentName}-${region}-external-subnet`,
                 Facing: "external",
@@ -125,6 +128,41 @@ export function internalSubnet(
         }
     );
 
+    const internalRouteTable = new aws.ec2.RouteTable(
+        `${deploymentName}-${region}-internal-subnet-routes`,
+        {
+            routes: [
+                {
+                    cidrBlock: "0.0.0.0/0",
+                    gatewayId: natGateway.id
+                }
+                // {
+                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
+                //     ipv6CidrBlock: "::/0",
+                // },
+            ],
+            tags: {
+                Name: `${deploymentName}-${region}-internal-subnet-routes`,
+                Deployment: deploymentName
+            },
+            vpcId: vpc.id
+        },
+        {
+            provider: provider
+        }
+    );
+
+    const internalRouteTableAssociation = new aws.ec2.RouteTableAssociation(
+        `${deploymentName}-${region}-internal-subnet-route-assoc`,
+        {
+            routeTableId: internalRouteTable.id,
+            subnetId: vpcSubnet.id
+        },
+        {
+            provider: provider
+        }
+    );
+
     return vpcSubnet;
 }
 
@@ -139,19 +177,21 @@ export function peerVpcs(
     return new aws.ec2.VpcPeeringConnection(
         `${deploymentName}-network-peering-${regionA}-to-${regionB}`,
         {
+            // Can't auto-accept since it's between regions
             //autoAccept: true,
             vpcId: vpcA.id,
             peerVpcId: vpcB.id,
             peerRegion: regionB,
-            accepter: {
-                allowRemoteVpcDnsResolution: true
-            },
-            requester: {
-                allowRemoteVpcDnsResolution: true
-            },
+            // Can't seem to turn these on at this stage, since
+            // the connection hasn't been accepted/created
+            // accepter: {
+            //     allowRemoteVpcDnsResolution: true
+            // },
+            // requester: {
+            //     allowRemoteVpcDnsResolution: true
+            // },
             tags: {
-                Name:
-                    `${deploymentName}-network-peering-${regionA}-to-${regionB}`,
+                Name: `${deploymentName}-network-peering-${regionA}-to-${regionB}`,
                 Deployment: deploymentName
             }
         },
@@ -160,6 +200,8 @@ export function peerVpcs(
         }
     );
 
+    // https://pulumi.io/reference/pkg/nodejs/pulumi/aws/ec2/#getSubnetIds
+
     // need to create routes
 }
 
@@ -167,17 +209,65 @@ export function acceptVpcPeeringRequest(
     deploymentName: string,
     provider: aws.Provider,
     region: aws.Region,
-    sourceRegion: aws.Region,
+    vpc: aws.ec2.Vpc,
+    peerDeployment: AWSRegionalDeployment,
     peeringConnection: aws.ec2.VpcPeeringConnection
 ) {
-    return new aws.ec2.VpcPeeringConnectionAccepter(
-        `${deploymentName}-network-peering-${region}-to-${sourceRegion}`,
+    //let sourceRegion = peerDeployment.region;
+
+    const vpcPeeringConnectionAccepter = new aws.ec2.VpcPeeringConnectionAccepter(
+        `${deploymentName}-network-peering-${region}-to-${
+            peerDeployment.region
+        }`,
         {
             autoAccept: true,
-            vpcPeeringConnectionId: peeringConnection.id,
+            vpcPeeringConnectionId: peeringConnection.id
         },
         {
             provider: provider
         }
     );
+
+    const peerRouteTable = new aws.ec2.RouteTable(
+        `${deploymentName}-${region}-peered-subnet-routes`,
+        {
+            routes: [
+                {
+                    cidrBlock: peerDeployment.internalFacingSubnet.cidrBlock,
+                    vpcPeeringConnectionId:
+                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+                },
+                {
+                    cidrBlock: peerDeployment.externalFacingSubnet.cidrBlock,
+                    vpcPeeringConnectionId:
+                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+                }
+                // {
+                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
+                //     ipv6CidrBlock: "::/0",
+                // },
+            ],
+            tags: {
+                Name: `${deploymentName}-${region}-peered-subnet-routes`,
+                Deployment: deploymentName
+            },
+            vpcId: vpc.id
+        },
+        {
+            provider: provider
+        }
+    );
+
+    const peerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
+        `${deploymentName}-${region}-peered-subnet-route-assoc`,
+        {
+            routeTableId: peerRouteTable.id,
+            subnetId: vpc.id
+        },
+        {
+            provider: provider
+        }
+    );
+
+    return vpcPeeringConnectionAccepter;
 }

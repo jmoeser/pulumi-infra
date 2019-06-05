@@ -16,9 +16,15 @@ let secondaryRegion = new AWSRegionalDeployment(
     "172.17.2.0/24"
 );
 
-mainRegion.deployBastion();
-let peeringRequest = mainRegion.peerWith(secondaryRegion.vpc, secondaryRegion.region);
-secondaryRegion.acceptPeerRequest(peeringRequest, secondaryRegion.region);
+let bastionHost = mainRegion.deployBastion();
+let peeringRequest = mainRegion.peerWith(
+    secondaryRegion.vpc,
+    secondaryRegion.region
+);
+secondaryRegion.acceptPeerRequest(peeringRequest, mainRegion);
+secondaryRegion.setBastion(bastionHost);
+mainRegion.deployGateway();
+secondaryRegion.deployGateway();
 
 // for generating the diagrams?
 // https://mermaidjs.github.io/

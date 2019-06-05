@@ -8,23 +8,79 @@ export default function AWSBastion(
     provider: aws.Provider,
     vpc: aws.ec2.Vpc,
     region: aws.Region,
-    sshIngressSecGroup: aws.ec2.SecurityGroup,
     subnet: aws.ec2.Subnet,
     size: aws.ec2.InstanceType,
     ami: pulumi.Output<string>
 ) {
-    return new aws.ec2.Instance(`${deploymentName}-${region}-bastion`, {
-        instanceType: size,
-        securityGroups: [sshIngressSecGroup.name],
-        ami: ami,
-        tags: {
-            Name: `${deploymentName}-${region}-bastion`,
-            Group: "bastion",
-            Deployment: deploymentName
+    let ssh_ingress_security_group = new aws.ec2.SecurityGroup(
+        `${deploymentName}-${region}-bastion-allow-ssh-ingress`,
+        {
+            description: "Allows SSH from external sources",
+            egress: [
+                {
+                    cidrBlocks: ["0.0.0.0/0"],
+                    fromPort: 0,
+                    protocol: "-1",
+                    toPort: 0
+                }
+            ],
+            ingress: [
+                {
+                    protocol: "tcp",
+                    fromPort: 22,
+                    toPort: 22,
+                    cidrBlocks: ["0.0.0.0/0"]
+                }
+            ],
+            tags: {
+                Name: `${deploymentName}-${region}-bastion-allow-ssh-ingress`,
+                Deployment: deploymentName,
+                Group: "bastion"
+            },
+            vpcId: vpc.id
         },
-        keyName: keyPair.keyName,
-        rootBlockDevice: {
-            deleteOnTermination: true
+        {
+            provider: provider
         }
-    });
+    );
+
+    let bastion = new aws.ec2.Instance(
+        `${deploymentName}-${region}-bastion`,
+        {
+            instanceType: size,
+            securityGroups: [ssh_ingress_security_group.id],
+            ami: ami,
+            tags: {
+                Name: `${deploymentName}-${region}-bastion`,
+                Group: "bastion",
+                Deployment: deploymentName
+            },
+            keyName: keyPair.keyName,
+            rootBlockDevice: {
+                deleteOnTermination: true
+            },
+            subnetId: subnet.id
+        },
+        {
+            provider: provider
+        }
+    );
+
+    const bastionExternalIP = new aws.ec2.Eip(
+        `${deploymentName}-${region}-bastion-ip`,
+        {
+            instance: bastion.id,
+            tags: {
+                Name: `${deploymentName}-${region}-bastion-ip`,
+                Group: "bastion",
+                Deployment: deploymentName
+            },
+            vpc: true
+        },
+        {
+            provider: provider
+        }
+    );
+
+    return bastion;
 }

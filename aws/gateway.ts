@@ -8,21 +8,46 @@ export default function AWSHttpGateway(
     provider: aws.Provider,
     vpc: aws.ec2.Vpc,
     region: aws.Region,
-    SecGroups: Array<pulumi.Output<string>>,
-    //httpIngressSecGroup: aws.ec2.SecurityGroup,
     subnet: aws.ec2.Subnet,
     size: aws.ec2.InstanceType,
     ami: pulumi.Output<string>,
-    count: number
+    count: number,
+    extraSecurityGroup?: Array<pulumi.Output<string>>
 ) {
-    // const currentRegion = pulumi.output(aws.getRegion({}));
-    // console.log(currentRegion);
-    // // To get the value of an Output<T> as an Output<string> consider either:
-    // // 1: o.apply(v => `prefix${v}suffix`)
 
-    // //let region = currentRegion.apply(v => `a${v}a`)
-    // const region: pulumi.Output<string> = pulumi.interpolate `${deploymentName}-${currentRegion}`;
-    // console.log(region);
+    let http_ingress_security_group = new aws.ec2.SecurityGroup(
+        `${deploymentName}-${region}-gateway-allow-http-ingress`,
+        {
+            description: "Allows HTTP/HTTPS from external sources",
+            ingress: [
+                {
+                    protocol: "tcp",
+                    fromPort: 80,
+                    toPort: 80,
+                    cidrBlocks: ["0.0.0.0/0"]
+                },
+                {
+                    protocol: "tcp",
+                    fromPort: 443,
+                    toPort: 443,
+                    cidrBlocks: ["0.0.0.0/0"]
+                }
+            ],
+            tags: {
+                Name: `${deploymentName}-${region}-gateway-allow-http-ingress`,
+                Deployment: deploymentName,
+                Group: "gateway"
+            },
+            vpcId: vpc.id
+        },
+        {
+            provider: provider
+        }
+    );
+
+    // if (extraSecurityGroup == undefined) {
+    //     extraSecurityGroup = [];
+    // }
 
     var index: number;
     var gateways: Array<aws.ec2.Instance> = [];
@@ -32,7 +57,10 @@ export default function AWSHttpGateway(
             `${deploymentName}-${region}-http-gw-${index}`,
             {
                 instanceType: size,
-                securityGroups: SecGroups,
+                securityGroups: [
+                    http_ingress_security_group.name,
+                    ...(extraSecurityGroup || [])
+                ],
                 ami: ami,
                 tags: {
                     Name: `${deploymentName}-${region}-http-gw-${index}`,
