@@ -140,7 +140,7 @@ export default class AWSRegionalDeployment {
             bastion
         );
 
-        this.applyToAllSecurityGroups = [bastionIngressRule.name];
+        this.applyToAllSecurityGroups = [bastionIngressRule.id];
     }
 
     deployGateway() {
@@ -185,6 +185,8 @@ export default class AWSRegionalDeployment {
             this.provider,
             this.region,
             this.vpc,
+            this.internalFacingSubnet,
+            this.externalFacingSubnet,
             peerDeployment,
             peeringRequest
         );

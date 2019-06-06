@@ -210,6 +210,8 @@ export function acceptVpcPeeringRequest(
     provider: aws.Provider,
     region: aws.Region,
     vpc: aws.ec2.Vpc,
+    internalFacingSubnet: aws.ec2.Subnet,
+    externalFacingSubnet: aws.ec2.Subnet,
     peerDeployment: AWSRegionalDeployment,
     peeringConnection: aws.ec2.VpcPeeringConnection
 ) {
@@ -258,16 +260,82 @@ export function acceptVpcPeeringRequest(
         }
     );
 
-    const peerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
-        `${deploymentName}-${region}-peered-subnet-route-assoc`,
+    const intPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
+        `${deploymentName}-${region}-internal-peered-subnet-route-assoc`,
         {
             routeTableId: peerRouteTable.id,
-            subnetId: vpc.id
+            subnetId: internalFacingSubnet.id
         },
         {
             provider: provider
         }
     );
 
+    const extPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
+        `${deploymentName}-${region}-external-peered-subnet-route-assoc`,
+        {
+            routeTableId: peerRouteTable.id,
+            subnetId: externalFacingSubnet.id
+        },
+        {
+            provider: provider
+        }
+    );
+
+    const theirPeerRouteTable = new aws.ec2.RouteTable(
+        `${deploymentName}-${peerDeployment.region}-peered-subnet-routes`,
+        {
+            routes: [
+                {
+                    cidrBlock: internalFacingSubnet.cidrBlock,
+                    vpcPeeringConnectionId:
+                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+                },
+                {
+                    cidrBlock: externalFacingSubnet.cidrBlock,
+                    vpcPeeringConnectionId:
+                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+                }
+                // {
+                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
+                //     ipv6CidrBlock: "::/0",
+                // },
+            ],
+            tags: {
+                Name: `${deploymentName}-${peerDeployment.region}-peered-subnet-routes`,
+                Deployment: deploymentName
+            },
+            vpcId: peerDeployment.vpc.id
+        },
+        {
+            provider: peerDeployment.provider
+        }
+    );
+
+    const theirIntPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
+        `${deploymentName}-${peerDeployment.region}-internal-peered-subnet-route-assoc`,
+        {
+            routeTableId: theirPeerRouteTable.id,
+            subnetId: peerDeployment.internalFacingSubnet.id
+        },
+        {
+            provider: peerDeployment.provider
+        }
+    );
+
+    const theirExtPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
+        `${deploymentName}-${peerDeployment.region}-external-peered-subnet-route-assoc`,
+        {
+            routeTableId: theirPeerRouteTable.id,
+            subnetId: peerDeployment.externalFacingSubnet.id
+        },
+        {
+            provider: peerDeployment.provider
+        }
+    );
+
     return vpcPeeringConnectionAccepter;
 }
+
+// external route table needs internet gateway
+// internal route table needs nat gw

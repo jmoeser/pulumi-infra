@@ -58,7 +58,7 @@ export default function AWSHttpGateway(
             {
                 instanceType: size,
                 securityGroups: [
-                    http_ingress_security_group.name,
+                    http_ingress_security_group.id,
                     ...(extraSecurityGroup || [])
                 ],
                 ami: ami,

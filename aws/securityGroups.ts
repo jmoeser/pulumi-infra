@@ -24,6 +24,7 @@ export function createFromBastionIngressRule(
                 }
             ],
             tags: {
+                Name: `${deploymentName}-${region}-allow-ssh-from-bastion`,
                 Deployment: deploymentName,
                 Group: "bastion"
             },
