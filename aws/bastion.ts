@@ -1,8 +1,6 @@
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 
-import { keyPair } from "./config";
-
 export default function AWSBastion(
     deploymentName: string,
     provider: aws.Provider,
@@ -10,7 +8,8 @@ export default function AWSBastion(
     region: aws.Region,
     subnet: aws.ec2.Subnet,
     size: aws.ec2.InstanceType,
-    ami: pulumi.Output<string>
+    ami: pulumi.Output<string>,
+    keyPair: aws.ec2.KeyPair
 ) {
     let ssh_ingress_security_group = new aws.ec2.SecurityGroup(
         `${deploymentName}-${region}-bastion-allow-ssh-ingress`,

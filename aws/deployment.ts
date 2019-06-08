@@ -1,6 +1,8 @@
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 
+import { readFileSync } from "fs";
+
 import AWSHttpGateway from "./gateway";
 import { createFromBastionIngressRule } from "./securityGroups";
 import AWSBastion from "./bastion";
@@ -9,9 +11,19 @@ import {
     regionalVpc,
     externalSubnet,
     internalSubnet,
+    createNATGateway,
+    createInternetGateway,
+    createRouteTable,
     peerVpcs,
     acceptVpcPeeringRequest
 } from "./network";
+
+declare var process: {
+    env: {
+        PULUMI_SSH_PUBKEY: string;
+        USER: string;
+    };
+};
 
 export default class AWSRegionalDeployment {
     readonly deploymentName: string;
@@ -24,6 +36,10 @@ export default class AWSRegionalDeployment {
     readonly internalFacingSubnet: aws.ec2.Subnet;
     readonly externalFacingSubnet: aws.ec2.Subnet;
     readonly vpc: aws.ec2.Vpc;
+    readonly internalRouteTable: aws.ec2.RouteTable;
+    readonly externalRouteTable: aws.ec2.RouteTable;
+
+    readonly keyPair: aws.ec2.KeyPair;
 
     defaultSize: aws.ec2.InstanceType = "t2.micro";
 
@@ -50,6 +66,18 @@ export default class AWSRegionalDeployment {
             {
                 region: region
             }
+        );
+
+        let keyName = process.env.USER;
+
+        let pubKey: string = readFileSync(
+            process.env.PULUMI_SSH_PUBKEY
+        ).toString();
+
+        this.keyPair = new aws.ec2.KeyPair(
+            `${deploymentName}-${keyName}-${region}`,
+            { publicKey: pubKey },
+            { provider: this.provider }
         );
 
         // Pick an AZ in our region for deployments
@@ -103,6 +131,23 @@ export default class AWSRegionalDeployment {
             this.vpc
         );
 
+        let internetGateway = createInternetGateway(
+            deploymentName,
+            this.provider,
+            this.region,
+            this.vpc
+        );
+
+        this.externalRouteTable = createRouteTable(
+            deploymentName,
+            this.provider,
+            this.region,
+            this.externalFacingSubnet,
+            this.vpc,
+            internetGateway,
+            "external"
+        );
+
         this.internalFacingSubnet = internalSubnet(
             deploymentName,
             this.provider,
@@ -110,6 +155,23 @@ export default class AWSRegionalDeployment {
             this.availabilityZone,
             internalFacingSubnet,
             this.vpc
+        );
+
+        let natGateway = createNATGateway(
+            deploymentName,
+            this.provider,
+            this.region,
+            this.internalFacingSubnet
+        );
+
+        this.internalRouteTable = createRouteTable(
+            deploymentName,
+            this.provider,
+            this.region,
+            this.internalFacingSubnet,
+            this.vpc,
+            natGateway,
+            "internal"
         );
     }
 
@@ -121,7 +183,8 @@ export default class AWSRegionalDeployment {
             this.region,
             this.externalFacingSubnet,
             this.defaultSize,
-            this.defaultAmi
+            this.defaultAmi,
+            this.keyPair
         );
         this.serverList.push(bastion);
 
@@ -153,6 +216,7 @@ export default class AWSRegionalDeployment {
             this.defaultSize,
             this.defaultAmi,
             1,
+            this.keyPair,
             this.applyToAllSecurityGroups
         );
 
@@ -178,7 +242,6 @@ export default class AWSRegionalDeployment {
     acceptPeerRequest(
         peeringRequest: aws.ec2.VpcPeeringConnection,
         peerDeployment: AWSRegionalDeployment
-        //sourceRegion: aws.Region
     ) {
         let acceptedPeer = acceptVpcPeeringRequest(
             this.deploymentName,
@@ -187,6 +250,8 @@ export default class AWSRegionalDeployment {
             this.vpc,
             this.internalFacingSubnet,
             this.externalFacingSubnet,
+            this.internalRouteTable,
+            this.externalRouteTable,
             peerDeployment,
             peeringRequest
         );

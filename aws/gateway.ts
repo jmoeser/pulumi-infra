@@ -1,8 +1,6 @@
 import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 
-import { keyPair } from "./config";
-
 export default function AWSHttpGateway(
     deploymentName: string,
     provider: aws.Provider,
@@ -12,9 +10,9 @@ export default function AWSHttpGateway(
     size: aws.ec2.InstanceType,
     ami: pulumi.Output<string>,
     count: number,
+    keyPair: aws.ec2.KeyPair,
     extraSecurityGroup?: Array<pulumi.Output<string>>
 ) {
-
     let http_ingress_security_group = new aws.ec2.SecurityGroup(
         `${deploymentName}-${region}-gateway-allow-http-ingress`,
         {
@@ -80,6 +78,22 @@ export default function AWSHttpGateway(
         );
 
         gateways.push(gateway);
+
+        const gatewayExternalIP = new aws.ec2.Eip(
+            `${deploymentName}-${region}-http-gw-ip`,
+            {
+                instance: gateway.id,
+                tags: {
+                    Name: `${deploymentName}-${region}-bastion-ip`,
+                    Group: "gateway",
+                    Deployment: deploymentName
+                },
+                vpc: true
+            },
+            {
+                provider: provider
+            }
+        );
     }
 
     return gateways;

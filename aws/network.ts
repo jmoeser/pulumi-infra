@@ -23,20 +23,6 @@ export function regionalVpc(
         }
     );
 
-    let internetGateway = new aws.ec2.InternetGateway(
-        `${deploymentName}-${region}-internet-gateway`,
-        {
-            tags: {
-                Name: `${deploymentName}-${region}-internet-gateway`,
-                Deployment: deploymentName
-            },
-            vpcId: vpc.id
-        },
-        {
-            provider: provider
-        }
-    );
-
     return vpc;
 }
 
@@ -75,18 +61,7 @@ export function internalSubnet(
     subnet: string,
     vpc: aws.ec2.Vpc
 ) {
-    // const secondaryCidrAssoc = new aws.ec2.VpcIpv4CidrBlockAssociation(
-    //     `${deploymentName}-${region}-secondary-cidr`,
-    //     {
-    //         cidrBlock: subnet,
-    //         vpcId: vpc.id
-    //     },
-    //     {
-    //         provider: provider
-    //     }
-    // );
-
-    const vpcSubnet = new aws.ec2.Subnet(
+    return new aws.ec2.Subnet(
         `${deploymentName}-${region}-internal-subnet`,
         {
             cidrBlock: subnet,
@@ -102,9 +77,16 @@ export function internalSubnet(
             provider: provider
         }
     );
+}
 
+export function createNATGateway(
+    deploymentName: string,
+    provider: aws.Provider,
+    region: aws.Region,
+    subnet: aws.ec2.Subnet
+) {
     const natEip = new aws.ec2.Eip(
-        `${deploymentName}-${region}-nat-gw-ip`,
+        `${deploymentName}-${region}-nat-gateway-ip`,
         {
             vpc: true
         },
@@ -114,12 +96,12 @@ export function internalSubnet(
     );
 
     const natGateway = new aws.ec2.NatGateway(
-        `${deploymentName}-${region}-nat-gw`,
+        `${deploymentName}-${region}-nat-gateway`,
         {
             allocationId: natEip.id,
-            subnetId: vpcSubnet.id,
+            subnetId: subnet.id,
             tags: {
-                Name: `${deploymentName}-${region}-nat-gw`,
+                Name: `${deploymentName}-${region}-nat-gateway`,
                 Deployment: deploymentName
             }
         },
@@ -128,21 +110,29 @@ export function internalSubnet(
         }
     );
 
-    const internalRouteTable = new aws.ec2.RouteTable(
-        `${deploymentName}-${region}-internal-subnet-routes`,
+    return natGateway;
+}
+
+export function createInternetGateway(
+    deploymentName: string,
+    provider: aws.Provider,
+    region: aws.Region,
+    vpc: aws.ec2.Vpc
+) {
+    // const defaultInternetGateway = pulumi.output(aws.ec2.getInternetGateway({
+    //     filters: [{
+    //         name: "attachment.vpc-id",
+    //         values: [`${vpc.id}`],
+    //     }],
+    // })).id;
+
+    // return defaultInternetGateway
+
+    return new aws.ec2.InternetGateway(
+        `${deploymentName}-${region}-internet-gateway`,
         {
-            routes: [
-                {
-                    cidrBlock: "0.0.0.0/0",
-                    gatewayId: natGateway.id
-                }
-                // {
-                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
-                //     ipv6CidrBlock: "::/0",
-                // },
-            ],
             tags: {
-                Name: `${deploymentName}-${region}-internal-subnet-routes`,
+                Name: `${deploymentName}-${region}-internet-gateway`,
                 Deployment: deploymentName
             },
             vpcId: vpc.id
@@ -151,19 +141,54 @@ export function internalSubnet(
             provider: provider
         }
     );
+}
 
-    const internalRouteTableAssociation = new aws.ec2.RouteTableAssociation(
-        `${deploymentName}-${region}-internal-subnet-route-assoc`,
+export function createRouteTable(
+    deploymentName: string,
+    provider: aws.Provider,
+    region: aws.Region,
+    subnet: aws.ec2.Subnet,
+    vpc: aws.ec2.Vpc,
+    gateway: aws.ec2.NatGateway | aws.ec2.InternetGateway,
+    description: string
+) {
+    const routeTable = new aws.ec2.RouteTable(
+        `${deploymentName}-${region}-${description}-subnet-routes`,
         {
-            routeTableId: internalRouteTable.id,
-            subnetId: vpcSubnet.id
+            routes: [
+                {
+                    cidrBlock: "0.0.0.0/0",
+                    gatewayId: gateway.id
+                }
+                // {
+                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
+                //     ipv6CidrBlock: "::/0",
+                // },
+            ],
+            tags: {
+                Name: `${deploymentName}-${region}-${description}-subnet-routes`,
+                Deployment: deploymentName
+            },
+            vpcId: vpc.id
+        },
+        {
+            provider: provider,
+            dependsOn: [gateway]
+        }
+    );
+
+    const routeTableAssociation = new aws.ec2.RouteTableAssociation(
+        `${deploymentName}-${region}-${description}-subnet-route-assoc`,
+        {
+            routeTableId: routeTable.id,
+            subnetId: subnet.id
         },
         {
             provider: provider
         }
     );
 
-    return vpcSubnet;
+    return routeTable;
 }
 
 export function peerVpcs(
@@ -182,14 +207,6 @@ export function peerVpcs(
             vpcId: vpcA.id,
             peerVpcId: vpcB.id,
             peerRegion: regionB,
-            // Can't seem to turn these on at this stage, since
-            // the connection hasn't been accepted/created
-            // accepter: {
-            //     allowRemoteVpcDnsResolution: true
-            // },
-            // requester: {
-            //     allowRemoteVpcDnsResolution: true
-            // },
             tags: {
                 Name: `${deploymentName}-network-peering-${regionA}-to-${regionB}`,
                 Deployment: deploymentName
@@ -199,10 +216,6 @@ export function peerVpcs(
             provider: provider
         }
     );
-
-    // https://pulumi.io/reference/pkg/nodejs/pulumi/aws/ec2/#getSubnetIds
-
-    // need to create routes
 }
 
 export function acceptVpcPeeringRequest(
@@ -212,11 +225,11 @@ export function acceptVpcPeeringRequest(
     vpc: aws.ec2.Vpc,
     internalFacingSubnet: aws.ec2.Subnet,
     externalFacingSubnet: aws.ec2.Subnet,
+    internalRouteTable: aws.ec2.RouteTable,
+    externalRouteTable: aws.ec2.RouteTable,
     peerDeployment: AWSRegionalDeployment,
     peeringConnection: aws.ec2.VpcPeeringConnection
 ) {
-    //let sourceRegion = peerDeployment.region;
-
     const vpcPeeringConnectionAccepter = new aws.ec2.VpcPeeringConnectionAccepter(
         `${deploymentName}-network-peering-${region}-to-${
             peerDeployment.region
@@ -230,104 +243,106 @@ export function acceptVpcPeeringRequest(
         }
     );
 
-    const peerRouteTable = new aws.ec2.RouteTable(
-        `${deploymentName}-${region}-peered-subnet-routes`,
+    // change this to a loop?
+
+    const internalSubnetRoutePeerInternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${region}-int-sub-to-peer-int-sub`,
         {
-            routes: [
-                {
-                    cidrBlock: peerDeployment.internalFacingSubnet.cidrBlock,
-                    vpcPeeringConnectionId:
-                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
-                },
-                {
-                    cidrBlock: peerDeployment.externalFacingSubnet.cidrBlock,
-                    vpcPeeringConnectionId:
-                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
-                }
-                // {
-                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
-                //     ipv6CidrBlock: "::/0",
-                // },
-            ],
-            tags: {
-                Name: `${deploymentName}-${region}-peered-subnet-routes`,
-                Deployment: deploymentName
-            },
-            vpcId: vpc.id
+            destinationCidrBlock: peerDeployment.internalFacingSubnet.cidrBlock,
+            routeTableId: internalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
         },
         {
             provider: provider
         }
     );
 
-    const intPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
-        `${deploymentName}-${region}-internal-peered-subnet-route-assoc`,
+    const internalSubnetRoutePeerExternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${region}-int-sub-to-peer-ext-sub`,
         {
-            routeTableId: peerRouteTable.id,
-            subnetId: internalFacingSubnet.id
+            destinationCidrBlock: peerDeployment.externalFacingSubnet.cidrBlock,
+            routeTableId: internalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
         },
         {
             provider: provider
         }
     );
 
-    const extPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
-        `${deploymentName}-${region}-external-peered-subnet-route-assoc`,
+    const externalSubnetRoutePeerInternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${region}-ext-sub-to-peer-int-sub`,
         {
-            routeTableId: peerRouteTable.id,
-            subnetId: externalFacingSubnet.id
+            destinationCidrBlock: peerDeployment.internalFacingSubnet.cidrBlock,
+            routeTableId: externalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
         },
         {
             provider: provider
         }
     );
 
-    const theirPeerRouteTable = new aws.ec2.RouteTable(
-        `${deploymentName}-${peerDeployment.region}-peered-subnet-routes`,
+    const externalSubnetRoutePeerExternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${region}-ext-sub-to-peer-ext-sub`,
         {
-            routes: [
-                {
-                    cidrBlock: internalFacingSubnet.cidrBlock,
-                    vpcPeeringConnectionId:
-                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
-                },
-                {
-                    cidrBlock: externalFacingSubnet.cidrBlock,
-                    vpcPeeringConnectionId:
-                        vpcPeeringConnectionAccepter.vpcPeeringConnectionId
-                }
-                // {
-                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
-                //     ipv6CidrBlock: "::/0",
-                // },
-            ],
-            tags: {
-                Name: `${deploymentName}-${peerDeployment.region}-peered-subnet-routes`,
-                Deployment: deploymentName
-            },
-            vpcId: peerDeployment.vpc.id
+            destinationCidrBlock: peerDeployment.externalFacingSubnet.cidrBlock,
+            routeTableId: externalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+        },
+        {
+            provider: provider
+        }
+    );
+
+    const peerInternalSubnetRouteInternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${peerDeployment.region}-int-sub-to-peer-int-sub`,
+        {
+            destinationCidrBlock: internalFacingSubnet.cidrBlock,
+            routeTableId: peerDeployment.internalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
         },
         {
             provider: peerDeployment.provider
         }
     );
 
-    const theirIntPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
-        `${deploymentName}-${peerDeployment.region}-internal-peered-subnet-route-assoc`,
+    const peerInternalSubnetRouteExternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${peerDeployment.region}-int-sub-to-peer-ext-sub`,
         {
-            routeTableId: theirPeerRouteTable.id,
-            subnetId: peerDeployment.internalFacingSubnet.id
+            destinationCidrBlock: externalFacingSubnet.cidrBlock,
+            routeTableId: peerDeployment.internalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
         },
         {
             provider: peerDeployment.provider
         }
     );
 
-    const theirExtPeerRouteTableAssociation = new aws.ec2.RouteTableAssociation(
-        `${deploymentName}-${peerDeployment.region}-external-peered-subnet-route-assoc`,
+    const peerExternalSubnetRouteInternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${peerDeployment.region}-ext-sub-to-peer-int-sub`,
         {
-            routeTableId: theirPeerRouteTable.id,
-            subnetId: peerDeployment.externalFacingSubnet.id
+            destinationCidrBlock: internalFacingSubnet.cidrBlock,
+            routeTableId: peerDeployment.externalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+        },
+        {
+            provider: peerDeployment.provider
+        }
+    );
+
+    const peerExternalSubnetRouteExternalSubnet = new aws.ec2.Route(
+        `${deploymentName}-${peerDeployment.region}-ext-sub-to-peer-ext-sub`,
+        {
+            destinationCidrBlock: externalFacingSubnet.cidrBlock,
+            routeTableId: peerDeployment.externalRouteTable.id,
+            vpcPeeringConnectionId:
+                vpcPeeringConnectionAccepter.vpcPeeringConnectionId
         },
         {
             provider: peerDeployment.provider
@@ -336,6 +351,3 @@ export function acceptVpcPeeringRequest(
 
     return vpcPeeringConnectionAccepter;
 }
-
-// external route table needs internet gateway
-// internal route table needs nat gw
