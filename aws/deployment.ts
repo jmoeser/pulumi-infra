@@ -15,7 +15,9 @@ import {
     createInternetGateway,
     createRouteTable,
     peerVpcs,
-    acceptVpcPeeringRequest
+    acceptVpcPeeringRequest,
+    subdivideIpv6Subnet,
+    createIpv6EgressGateway
 } from "./network";
 
 declare var process: {
@@ -38,6 +40,11 @@ export default class AWSRegionalDeployment {
     readonly vpc: aws.ec2.Vpc;
     readonly internalRouteTable: aws.ec2.RouteTable;
     readonly externalRouteTable: aws.ec2.RouteTable;
+    readonly ipv6Enabled: boolean = false;
+    readonly vpcIpv6Cidr: pulumi.Output<string>;
+    readonly externalSubnetIpv6Cidr: pulumi.Output<string>;
+    readonly internalSubnetIpv6Cidr: pulumi.Output<string>;
+    readonly ipv6EgressGateway: aws.ec2.EgressOnlyInternetGateway;
 
     readonly keyPair: aws.ec2.KeyPair;
 
@@ -55,7 +62,8 @@ export default class AWSRegionalDeployment {
         vpcCidr: string,
         internalFacingSubnet: string,
         externalFacingSubnet: string,
-        defaultSize?: aws.ec2.InstanceType
+        //defaultSize?: aws.ec2.InstanceType,
+        ipv6Enabled: boolean = false
     ) {
         this.region = region;
         this.deploymentName = deploymentName;
@@ -90,9 +98,9 @@ export default class AWSRegionalDeployment {
         );
 
         // Use the default size if we haven't been given one
-        if (defaultSize != undefined) {
-            this.defaultSize = defaultSize;
-        }
+        //if (defaultSize != undefined) {
+        //    this.defaultSize = defaultSize;
+        //}
 
         // Find the latest CentOS 7 AMI in this region
         this.defaultAmi = pulumi.output(
@@ -115,12 +123,27 @@ export default class AWSRegionalDeployment {
             )
         ).id;
 
+        this.ipv6Enabled = ipv6Enabled;
+
         this.vpc = regionalVpc(
             deploymentName,
             this.provider,
             this.region,
-            vpcCidr
+            vpcCidr,
+            ipv6Enabled
         );
+
+        if (ipv6Enabled) {
+            this.vpcIpv6Cidr = this.vpc.ipv6CidrBlock;
+            this.externalSubnetIpv6Cidr = subdivideIpv6Subnet(
+                this.vpc.ipv6CidrBlock,
+                0
+            );
+            this.internalSubnetIpv6Cidr = subdivideIpv6Subnet(
+                this.vpc.ipv6CidrBlock,
+                1
+            );
+        }
 
         this.externalFacingSubnet = externalSubnet(
             deploymentName,
@@ -128,7 +151,8 @@ export default class AWSRegionalDeployment {
             this.region,
             this.availabilityZone,
             externalFacingSubnet,
-            this.vpc
+            this.vpc,
+            this.externalSubnetIpv6Cidr
         );
 
         let internetGateway = createInternetGateway(
@@ -145,7 +169,8 @@ export default class AWSRegionalDeployment {
             this.externalFacingSubnet,
             this.vpc,
             internetGateway,
-            "external"
+            "external",
+            ipv6Enabled
         );
 
         this.internalFacingSubnet = internalSubnet(
@@ -154,8 +179,18 @@ export default class AWSRegionalDeployment {
             this.region,
             this.availabilityZone,
             internalFacingSubnet,
-            this.vpc
+            this.vpc,
+            this.internalSubnetIpv6Cidr
         );
+
+        if (ipv6Enabled) {
+            this.ipv6EgressGateway = createIpv6EgressGateway(
+                this.deploymentName,
+                this.provider,
+                this.region,
+                this.vpc
+            );
+        }
 
         let natGateway = createNATGateway(
             deploymentName,
@@ -171,7 +206,9 @@ export default class AWSRegionalDeployment {
             this.internalFacingSubnet,
             this.vpc,
             natGateway,
-            "internal"
+            "internal",
+            ipv6Enabled,
+            this.ipv6EgressGateway
         );
     }
 

@@ -3,16 +3,30 @@ import * as pulumi from "@pulumi/pulumi";
 
 import AWSRegionalDeployment from "./deployment";
 
+export function subdivideIpv6Subnet(
+    inputSubnet: pulumi.Output<string>,
+    step: number
+) {
+    return pulumi
+        .all([inputSubnet, step])
+        .apply(
+            ([inputSubnet, step]) => `${inputSubnet.slice(0, -6)}${step}::/64`
+        );
+}
+
 export function regionalVpc(
     deploymentName: string,
     provider: aws.Provider,
     region: aws.Region,
-    vpcCidr: string
+    vpcCidr: string,
+    ipv6Enabled: boolean = false
 ) {
     const vpc = new aws.ec2.Vpc(
         `${deploymentName}-${region}-vpc`,
         {
             cidrBlock: vpcCidr,
+            assignGeneratedIpv6CidrBlock: ipv6Enabled,
+            enableDnsHostnames: false,
             tags: {
                 Name: `${deploymentName}-${region}-vpc`,
                 Deployment: deploymentName
@@ -32,13 +46,15 @@ export function externalSubnet(
     region: aws.Region,
     availabilityZone: pulumi.Output<string>,
     subnet: string,
-    vpc: aws.ec2.Vpc
+    vpc: aws.ec2.Vpc,
+    ipv6Cidr?: pulumi.Output<string>
 ) {
     return new aws.ec2.Subnet(
         `${deploymentName}-${region}-external-subnet`,
         {
             cidrBlock: subnet,
             availabilityZone: availabilityZone,
+            ipv6CidrBlock: ipv6Cidr || undefined,
             //assignIpv6AddressOnCreation: true,
             tags: {
                 Name: `${deploymentName}-${region}-external-subnet`,
@@ -59,13 +75,15 @@ export function internalSubnet(
     region: aws.Region,
     availabilityZone: pulumi.Output<string>,
     subnet: string,
-    vpc: aws.ec2.Vpc
+    vpc: aws.ec2.Vpc,
+    ipv6Cidr?: pulumi.Output<string>
 ) {
     return new aws.ec2.Subnet(
         `${deploymentName}-${region}-internal-subnet`,
         {
             cidrBlock: subnet,
             availabilityZone: availabilityZone,
+            ipv6CidrBlock: ipv6Cidr || undefined,
             tags: {
                 Name: `${deploymentName}-${region}-internal-subnet`,
                 Facing: "internal",
@@ -150,7 +168,9 @@ export function createRouteTable(
     subnet: aws.ec2.Subnet,
     vpc: aws.ec2.Vpc,
     gateway: aws.ec2.NatGateway | aws.ec2.InternetGateway,
-    description: string
+    description: string,
+    ipv6Enabled: boolean,
+    ipv6EgressGateway?: aws.ec2.EgressOnlyInternetGateway
 ) {
     const routeTable = new aws.ec2.RouteTable(
         `${deploymentName}-${region}-${description}-subnet-routes`,
@@ -176,6 +196,32 @@ export function createRouteTable(
             dependsOn: [gateway]
         }
     );
+
+    if (ipv6EgressGateway) {
+        const defaultIpv6RouteViaEgressGateway = new aws.ec2.Route(
+            `${deploymentName}-${region}-${description}-default-ipv6-route-via-egress-gateway`,
+            {
+                destinationIpv6CidrBlock: "::/0",
+                routeTableId: routeTable.id,
+                egressOnlyGatewayId: ipv6EgressGateway.id
+            },
+            {
+                provider: provider
+            }
+        );
+    } else if (ipv6Enabled) {
+        const defaultIpv6RouteViaInternetGateway = new aws.ec2.Route(
+            `${deploymentName}-${region}-${description}-default-ipv6-route-via-internet-gateway`,
+            {
+                destinationIpv6CidrBlock: "::/0",
+                routeTableId: routeTable.id,
+                gatewayId: gateway.id
+            },
+            {
+                provider: provider
+            }
+        );
+    }
 
     const routeTableAssociation = new aws.ec2.RouteTableAssociation(
         `${deploymentName}-${region}-${description}-subnet-route-assoc`,
@@ -231,9 +277,7 @@ export function acceptVpcPeeringRequest(
     peeringConnection: aws.ec2.VpcPeeringConnection
 ) {
     const vpcPeeringConnectionAccepter = new aws.ec2.VpcPeeringConnectionAccepter(
-        `${deploymentName}-network-peering-${region}-to-${
-            peerDeployment.region
-        }`,
+        `${deploymentName}-network-peering-${region}-to-${peerDeployment.region}`,
         {
             autoAccept: true,
             vpcPeeringConnectionId: peeringConnection.id
@@ -350,4 +394,21 @@ export function acceptVpcPeeringRequest(
     );
 
     return vpcPeeringConnectionAccepter;
+}
+
+export function createIpv6EgressGateway(
+    deploymentName: string,
+    provider: aws.Provider,
+    region: aws.Region,
+    vpc: aws.ec2.Vpc
+) {
+    return new aws.ec2.EgressOnlyInternetGateway(
+        `${deploymentName}-${region}-ipv6-egress-gateway`,
+        {
+            vpcId: vpc.id
+        },
+        {
+            provider: provider
+        }
+    );
 }

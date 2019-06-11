@@ -5,7 +5,8 @@ let mainRegion = new AWSRegionalDeployment(
     "us-east-1",
     "172.16.0.0/16",
     "172.16.1.0/24",
-    "172.16.2.0/24"
+    "172.16.2.0/24",
+    true
 );
 
 let secondaryRegion = new AWSRegionalDeployment(
@@ -13,7 +14,8 @@ let secondaryRegion = new AWSRegionalDeployment(
     "us-east-2",
     "172.17.0.0/16",
     "172.17.1.0/24",
-    "172.17.2.0/24"
+    "172.17.2.0/24",
+    true
 );
 
 let bastionHost = mainRegion.deployBastion();
