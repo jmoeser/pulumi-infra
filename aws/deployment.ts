@@ -6,6 +6,7 @@ import { readFileSync } from "fs";
 import AWSHttpGateway from "./gateway";
 import { createFromBastionIngressRule } from "./securityGroups";
 import AWSBastion from "./bastion";
+import { findLatestUbuntu1804 } from "./ami";
 
 import {
     regionalVpc,
@@ -102,26 +103,7 @@ export default class AWSRegionalDeployment {
         //    this.defaultSize = defaultSize;
         //}
 
-        // Find the latest CentOS 7 AMI in this region
-        this.defaultAmi = pulumi.output(
-            aws.getAmi(
-                {
-                    filters: [
-                        {
-                            name: "name",
-                            values: ["CentOS Linux 7 x86_64 HVM EBS*"]
-                        },
-                        {
-                            name: "virtualization-type",
-                            values: ["hvm"]
-                        }
-                    ],
-                    mostRecent: true,
-                    owners: ["679593333241"]
-                },
-                { provider: this.provider }
-            )
-        ).id;
+        this.defaultAmi = findLatestUbuntu1804(this.provider);
 
         this.ipv6Enabled = ipv6Enabled;
 

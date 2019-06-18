@@ -21,6 +21,12 @@ export default function AWSBastion(
                     fromPort: 0,
                     protocol: "-1",
                     toPort: 0
+                },
+                {
+                    ipv6CidrBlocks: ["::/0"],
+                    fromPort: 0,
+                    protocol: "-1",
+                    toPort: 0
                 }
             ],
             ingress: [

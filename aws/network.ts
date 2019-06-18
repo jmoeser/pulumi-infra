@@ -55,7 +55,7 @@ export function externalSubnet(
             cidrBlock: subnet,
             availabilityZone: availabilityZone,
             ipv6CidrBlock: ipv6Cidr || undefined,
-            //assignIpv6AddressOnCreation: true,
+            assignIpv6AddressOnCreation: (ipv6Cidr) ? true : false,
             tags: {
                 Name: `${deploymentName}-${region}-external-subnet`,
                 Facing: "external",
@@ -84,6 +84,7 @@ export function internalSubnet(
             cidrBlock: subnet,
             availabilityZone: availabilityZone,
             ipv6CidrBlock: ipv6Cidr || undefined,
+            assignIpv6AddressOnCreation: (ipv6Cidr) ? true : false,
             tags: {
                 Name: `${deploymentName}-${region}-internal-subnet`,
                 Facing: "internal",
@@ -180,10 +181,6 @@ export function createRouteTable(
                     cidrBlock: "0.0.0.0/0",
                     gatewayId: gateway.id
                 }
-                // {
-                //     egressOnlyGatewayId: aws_egress_only_internet_gateway_foo.id,
-                //     ipv6CidrBlock: "::/0",
-                // },
             ],
             tags: {
                 Name: `${deploymentName}-${region}-${description}-subnet-routes`,
@@ -341,6 +338,37 @@ export function acceptVpcPeeringRequest(
         }
     );
 
+    // IPv6 over inter-region VPC peering connections is not supported
+    // https://docs.aws.amazon.com/vpc/latest/peering/invalid-peering-configurations.html
+    // if (peerDeployment.ipv6Enabled) {
+
+    //     const externalSubnetRoutePeerIpv6Subnet = new aws.ec2.Route(
+    //         `${deploymentName}-${region}-ext-sub-to-peer-ipv6-sub`,
+    //         {
+    //             destinationIpv6CidrBlock: peerDeployment.vpcIpv6Cidr,
+    //             routeTableId: externalRouteTable.id,
+    //             vpcPeeringConnectionId:
+    //                 vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+    //         },
+    //         {
+    //             provider: provider
+    //         }
+    //     );
+
+    //     const internalSubnetRoutePeerIpv6Subnet = new aws.ec2.Route(
+    //         `${deploymentName}-${region}-int-sub-to-peer-ipv6-sub`,
+    //         {
+    //             destinationIpv6CidrBlock: peerDeployment.vpcIpv6Cidr,
+    //             routeTableId: internalRouteTable.id,
+    //             vpcPeeringConnectionId:
+    //                 vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+    //         },
+    //         {
+    //             provider: provider
+    //         }
+    //     );
+    // }
+
     const peerInternalSubnetRouteInternalSubnet = new aws.ec2.Route(
         `${deploymentName}-${peerDeployment.region}-int-sub-to-peer-int-sub`,
         {
@@ -392,6 +420,36 @@ export function acceptVpcPeeringRequest(
             provider: peerDeployment.provider
         }
     );
+
+
+    // if (vpc.ipv6CidrBlock) {
+
+    //     const peerRxternalSubnetRouteIpv6Subnet = new aws.ec2.Route(
+    //         `${deploymentName}-${peerDeployment.region}-ext-sub-to-peer-ipv6-sub`,
+    //         {
+    //             destinationIpv6CidrBlock: vpc.ipv6CidrBlock,
+    //             routeTableId: peerDeployment.externalRouteTable.id,
+    //             vpcPeeringConnectionId:
+    //                 vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+    //         },
+    //         {
+    //             provider: peerDeployment.provider
+    //         }
+    //     );
+
+    //     const peerInternalSubnetRouteIpv6Subnet = new aws.ec2.Route(
+    //         `${deploymentName}-${peerDeployment.region}-int-sub-to-peer-ipv6-sub`,
+    //         {
+    //             destinationIpv6CidrBlock: vpc.ipv6CidrBlock,
+    //             routeTableId: peerDeployment.internalRouteTable.id,
+    //             vpcPeeringConnectionId:
+    //                 vpcPeeringConnectionAccepter.vpcPeeringConnectionId
+    //         },
+    //         {
+    //             provider: peerDeployment.provider
+    //         }
+    //     );
+    // }
 
     return vpcPeeringConnectionAccepter;
 }
