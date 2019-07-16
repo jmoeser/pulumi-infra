@@ -9,11 +9,10 @@
         "ts-node": "^8.2.0"
     },
     "dependencies": {
-        "@pulumi/aws": "^0.18.7",
+        "@pulumi/aws": "latest",
         "@pulumi/aws-infra": "latest",
         "@pulumi/awsx": "latest",
-        "@pulumi/kubernetes": "latest",
-        "@pulumi/pulumi": "^0.17.14"
+        "@pulumi/pulumi": "latest"
     },
     "scripts": {
         "test": "PULUMI_TEST_MODE=true PULUMI_NODEJS_STACK=infra-aws PULUMI_NODEJS_PROJECT=dev PULUMI_CONFIG='{ \"aws:region\": \"us-west-2\" }' mocha --reporter spec --require ts-node/register tests/*.test.ts"
