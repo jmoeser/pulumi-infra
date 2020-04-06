@@ -1,18 +1,17 @@
 {
     "name": "aws-typescript",
     "devDependencies": {
-        "@types/chai": "^4.1.7",
+        "@types/chai": "^4.2.11",
         "@types/mocha": "^5.2.7",
-        "@types/node": "^12.0.4",
+        "@types/node": "^12.12.34",
         "chai": "^4.2.0",
-        "mocha": "^6.1.4",
-        "ts-node": "^8.2.0"
+        "mocha": "^6.2.3",
+        "ts-node": "^8.8.2"
     },
     "dependencies": {
-        "@pulumi/aws": "latest",
-        "@pulumi/aws-infra": "latest",
-        "@pulumi/awsx": "latest",
-        "@pulumi/pulumi": "latest"
+        "@pulumi/aws": "^1.30.0",
+        "@pulumi/awsx": "^0.18.14",
+        "@pulumi/pulumi": "^1.14.0"
     },
     "scripts": {
         "test": "PULUMI_TEST_MODE=true PULUMI_NODEJS_STACK=infra-aws PULUMI_NODEJS_PROJECT=dev PULUMI_CONFIG='{ \"aws:region\": \"us-west-2\" }' mocha --reporter spec --require ts-node/register tests/*.test.ts"
